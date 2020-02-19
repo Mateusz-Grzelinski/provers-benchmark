@@ -34,8 +34,8 @@ class Solvers(Enum):
 
 def get_statistics_parser(format_name: Union[str, Formats]) -> Optional[InputParser]:
     format_name = format_name.lower()
-    from src.parsers.statistics_parsers.tptp_parser import TPTPParser
-    from src.parsers.statistics_parsers.inkresat_cnf_json_parser import InkresatCNFPTLStatisticParser
+    from provers_benchmark.parsers.statistics_parsers.tptp_parser import TPTPParser
+    from provers_benchmark.parsers.statistics_parsers.inkresat_cnf_json_parser import InkresatCNFPTLStatisticParser
     __format_info_lookup = {
         Formats.TPTP: TPTPParser,
         Formats.TPTP.value: TPTPParser,
@@ -51,9 +51,9 @@ def get_statistics_parser(format_name: Union[str, Formats]) -> Optional[InputPar
 
 
 def get_output_parser(solver: Union[str, Solvers]) -> Optional[OutputParser]:
-    from src.parsers.output_parsers.prover9_parser import Prover9Parser
-    from src.parsers.output_parsers.spass_parser import SpassParser
-    from src.parsers.output_parsers.inkresat_parser import InkresatParser
+    from provers_benchmark.parsers.output_parsers.prover9_parser import Prover9Parser
+    from provers_benchmark.parsers.output_parsers.spass_parser import SpassParser
+    from provers_benchmark.parsers.output_parsers.inkresat_parser import InkresatParser
     __solvers_lookup_table = {
         Solvers.PROVER9: Prover9Parser,
         Solvers.PROVER9.value: Prover9Parser,

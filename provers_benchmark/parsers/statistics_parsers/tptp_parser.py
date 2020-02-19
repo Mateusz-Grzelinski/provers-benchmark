@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 import re
 
-from src.parsers.parsers import StatisticParser
-from src.statistics.stats import ConjunctiveNormalFormFirstOrderLogicSATStatistics, SATType
+from provers_benchmark.parsers.parsers import StatisticParser
+from provers_benchmark.statistics.stats import ConjunctiveNormalFormFirstOrderLogicSATStatistics, SATType
 
 
 class TPTPParser(StatisticParser):

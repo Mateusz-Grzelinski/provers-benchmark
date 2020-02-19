@@ -3,8 +3,8 @@ import subprocess
 from dataclasses import dataclass, field, InitVar
 from typing import List, Optional
 
-from src.errors import BenchmarkException
-from src.log import get_logger
+from provers_benchmark.errors import BenchmarkException
+from provers_benchmark.log import get_logger
 
 logger = get_logger()
 

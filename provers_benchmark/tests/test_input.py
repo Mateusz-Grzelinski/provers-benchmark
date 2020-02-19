@@ -5,11 +5,11 @@ from concurrent.futures.process import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from typing import List, ClassVar, Tuple, Optional
 
-from src.errors import BenchmarkException
-from src.log import get_logger
-from src.parsers.parsers import get_statistics_parser
-from src.statistics.stats import MinimalSATStatistics
-from src.translators import Translator
+from provers_benchmark.errors import BenchmarkException
+from provers_benchmark.log import get_logger
+from provers_benchmark.parsers.parsers import get_statistics_parser
+from provers_benchmark.statistics.stats import MinimalSATStatistics
+from provers_benchmark.translators import Translator
 
 logger = get_logger()
 

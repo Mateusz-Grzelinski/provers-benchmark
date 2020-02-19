@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 
-from src.parsers.parsers import StatisticParser
-from src.statistics.stats import ConjunctiveNormalFormPropositionalTemporalLogicFormulaInfo
+from provers_benchmark.parsers.parsers import StatisticParser
+from provers_benchmark.statistics.stats import ConjunctiveNormalFormPropositionalTemporalLogicFormulaInfo
 
 
 class InkresatCNFPTLStatisticParser(StatisticParser):

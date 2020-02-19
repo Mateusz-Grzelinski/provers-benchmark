@@ -2,11 +2,11 @@ import argparse
 import json
 import time
 
-from src.benchmark import Benchmark
-from src.config import Config
-from src.log import init_log, get_logger
-from src.statistics.json_encoder import ClassAsDictJSONEncoder
-from src.tests import TestInput
+from provers_benchmark.benchmark import Benchmark
+from provers_benchmark.config import Config
+from provers_benchmark.log import init_log, get_logger
+from provers_benchmark.statistics.json_encoder import ClassAsDictJSONEncoder
+from provers_benchmark.tests import TestInput
 
 
 def parse_args():

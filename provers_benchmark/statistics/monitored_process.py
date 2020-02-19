@@ -3,7 +3,7 @@ import time
 
 import psutil
 
-from src.statistics.stats import ExecutionStatistics
+from provers_benchmark.statistics.stats import ExecutionStatistics
 
 
 class MonitoredProcess(subprocess.Popen):

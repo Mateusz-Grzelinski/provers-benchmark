@@ -1,7 +1,7 @@
 from typing import Optional
 
-from src.parsers.parsers import OutputParser
-from src.statistics.stats import SATStatus
+from provers_benchmark.parsers.parsers import OutputParser
+from provers_benchmark.statistics.stats import SATStatus
 
 
 class Prover9Parser(OutputParser):

@@ -4,10 +4,10 @@ import os
 from dataclasses import dataclass, field, InitVar
 from typing import List
 
-from src.errors import BenchmarkException
-from src.log import get_logger
-from src.statistics.stats import TestSuiteStatistics
-from src.tests.test_input import TestInput
+from provers_benchmark.errors import BenchmarkException
+from provers_benchmark.log import get_logger
+from provers_benchmark.statistics.stats import TestSuiteStatistics
+from provers_benchmark.tests.test_input import TestInput
 
 logger = get_logger()
 
@@ -32,7 +32,7 @@ class TestSuite:
 
     def run(self) -> TestSuiteStatistics:
         """Synchronously run all test cases defined in this test suite"""
-        from src.tests import TestRun
+        from provers_benchmark.tests import TestRun
         test_suite_stats = TestSuiteStatistics(program_name=self.executable, program_version=self.version)
         for test_run in self.test_runs:
             try:

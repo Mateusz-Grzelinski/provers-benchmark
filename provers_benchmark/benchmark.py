@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List, ClassVar
 
-from src.log import get_logger
-from src.statistics.stats import Statistics, SATStatus
+from provers_benchmark.log import get_logger
+from provers_benchmark.statistics.stats import Statistics, SATStatus
 
 logger = get_logger()
 
