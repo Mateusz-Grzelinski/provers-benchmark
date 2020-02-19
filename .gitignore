@@ -6,6 +6,6 @@ inputs
 .venv
 venv
 benchmark.log
-config*
+config.*.toml
 *.json
 .cache
