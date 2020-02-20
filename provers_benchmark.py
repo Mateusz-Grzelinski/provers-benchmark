@@ -5,7 +5,6 @@ import time
 from provers_benchmark.benchmark import Benchmark
 from provers_benchmark.config import Config
 from provers_benchmark.log import init_log, get_logger
-from provers_benchmark.statistics.json_encoder import ClassAsDictJSONEncoder
 from provers_benchmark.tests import TestInput
 
 
@@ -45,5 +44,5 @@ if __name__ == '__main__':
     stats = benchmark.run()
     with open(config.output_dir, 'w') as outfile:
         logger.info(f'writing results to {config.output_dir}')
-        json.dump(stats, outfile, indent=2, cls=ClassAsDictJSONEncoder)
+        outfile.write(stats.to_json())
     logger.info(f'Benchmark was running for {time.time() - start:.2f} seconds in total')

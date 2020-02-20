@@ -69,8 +69,7 @@ class TestRun:
         return result
 
     def run(self, executable: str, options: List[str], PATH: str, test_input: TestInput, capture_stdout: bool, ) -> \
-            Generator[
-                TestRunStatistics]:
+            Generator[TestRunStatistics]:
         """Synchronously runs executable with options and self.options against all files in test_input"""
         logger.info(f'Running testcase {self.name}')
         original_paths, translated_file_paths, translators = test_input.as_format(self.format)
@@ -120,18 +119,20 @@ class TestRun:
                 # we want all stderr
                 out_stats.stderr += ''.join(nbsr_stderr.readall())
 
-            test_case_stats = TestRunStatistics(
-                name=self.name, command=command, minimal_input_statistics=minimal_statistics,
-                input_statistics=input_statistics, execution_statistics=proc.get_statistics())
-            if out_stats.status is None:
+            execution_statistics = proc.get_statistics()
+            if out_stats.status not in {SATStatus.TIMEOUT, SATStatus.OUT_OF_MEMORY}:
                 out_parser = get_output_parser(solver=executable)
                 if out_parser:
                     out_stats.status = out_parser.parse_output(
-                        returncode=test_case_stats.execution_statistics.returncode,
-                        stdout=out_stats.stdout, stderr=out_stats.stderr)
+                        returncode=execution_statistics.returncode, stdout=out_stats.stdout, stderr=out_stats.stderr
+                    )
                 else:
-                    logger.warning('There is no parser to set output SAT status. Status will be not set')
-            test_case_stats.output = out_stats
+                    logger.warning('There is no parser to set output SAT status. Status will be error or {}'.format(
+                        SATStatus.UNKOWN))
+            test_case_stats = TestRunStatistics(
+                name=self.name, command=command, minimal_input_statistics=minimal_statistics,
+                input_statistics=input_statistics, execution_statistics=execution_statistics, output=out_stats
+            )
             logger.info(f"Testcase '{self.name}' took "
                         f"{test_case_stats.execution_statistics.execution_time:.2f}, "
                         f"status: {test_case_stats.output.status}, "

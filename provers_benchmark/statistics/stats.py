@@ -2,11 +2,13 @@ import datetime
 import platform
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Dict, Union
+from typing import List, Dict, Union, Optional
 
 import psutil
+from dataclasses_json import dataclass_json
 
 
+@dataclass_json
 @dataclass
 class ExecutionStatistics:
     # todo which cpu times do we need?
@@ -15,7 +17,7 @@ class ExecutionStatistics:
     peak_memory: int = None
     disk_reads: int = None
     disk_writes: int = None
-    returncode: int = None
+    returncode: Optional[int] = None
 
     def update(self, proc: psutil.Process):
         try:
@@ -32,6 +34,7 @@ class ExecutionStatistics:
         self.cpu_time = proc.cpu_times()
 
 
+@dataclass_json
 class SATType(Enum):
     FOF = "First-order Formula"
     CNF = "Conjunctive Normal Form"
@@ -39,6 +42,7 @@ class SATType(Enum):
     THF = "Typed Higher-order Formula"
 
 
+@dataclass_json
 @dataclass
 class CPUStatistics:
     name: str = platform.processor()
@@ -48,6 +52,7 @@ class CPUStatistics:
     physical_threads: int = psutil.cpu_count(logical=False)
 
 
+@dataclass_json
 @dataclass
 class HardwareStatistics:
     system: str = platform.system()
@@ -57,15 +62,17 @@ class HardwareStatistics:
     total_memory: int = psutil.virtual_memory().total
 
 
+@dataclass_json
 @dataclass
 class MinimalSATStatistics:
     name: str = None
     path: str = None
     format: str = None
     # list of commands used to translate
-    translated_with: List[List[str]] = field(default_factory=list)
+    translated_with: Optional[str] = None
 
 
+@dataclass_json
 @dataclass
 class ConjunctiveNormalFormFirstOrderLogicSATStatistics:
     SAT_type: SATType = None
@@ -88,6 +95,7 @@ class ConjunctiveNormalFormFirstOrderLogicSATStatistics:
     # total_number_of_variables: int = None
 
 
+@dataclass_json
 @dataclass
 class ConjunctiveNormalFormPropositionalTemporalLogicFormulaInfo:
     number_of_variables: int = 0
@@ -101,34 +109,37 @@ class ConjunctiveNormalFormPropositionalTemporalLogicFormulaInfo:
     number_of_negated_variables: int = 0
 
 
+@dataclass_json
 class SATStatus(Enum):
     ERROR = "error"
     SATISFIABLE = "satisfiable"
     UNSATISFIABLE = "unsatisfiable"
     UNKOWN = "unknown"
     TIMEOUT = "timeout"
-    OUT_OF_MEMORY = "out of memory"
+    OUT_OF_MEMORY = "out_of_memory"
 
 
+@dataclass_json
 @dataclass
 class OutputStatistics:
-    status: SATStatus = None
+    status: SATStatus = SATStatus.UNKOWN
     stderr: str = ''
     stdout: str = ''
 
 
+@dataclass_json
 @dataclass
 class TestRunStatistics:
     name: str
     command: List[str]
     execution_statistics: ExecutionStatistics = None
     minimal_input_statistics: MinimalSATStatistics = None
-    input_statistics: Union[
-        ConjunctiveNormalFormFirstOrderLogicSATStatistics,
-        ConjunctiveNormalFormPropositionalTemporalLogicFormulaInfo] = None
+    input_statistics: Union[ConjunctiveNormalFormFirstOrderLogicSATStatistics,
+                            ConjunctiveNormalFormPropositionalTemporalLogicFormulaInfo] = None
     output: OutputStatistics = None
 
 
+@dataclass_json
 @dataclass
 class TestSuiteStatistics:
     program_name: str
@@ -136,6 +147,7 @@ class TestSuiteStatistics:
     test_run: List[TestRunStatistics] = field(default_factory=list)
 
 
+@dataclass_json
 @dataclass
 class Statistics:
     test_suites: List[TestSuiteStatistics] = field(default_factory=list)
