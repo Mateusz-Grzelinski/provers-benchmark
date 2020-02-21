@@ -5,12 +5,11 @@ from enum import Enum
 from typing import List, Dict, Union, Optional
 
 import psutil
-from dataclasses_json import dataclass_json
+from dataclasses_json import DataClassJsonMixin, dataclass_json
 
 
-@dataclass_json
 @dataclass
-class ExecutionStatistics:
+class ExecutionStatistics(DataClassJsonMixin):
     # todo which cpu times do we need?
     cpu_time = None
     execution_time: float = 0
@@ -42,9 +41,8 @@ class SATType(Enum):
     THF = "Typed Higher-order Formula"
 
 
-@dataclass_json
 @dataclass
-class CPUStatistics:
+class CPUStatistics(DataClassJsonMixin):
     name: str = platform.processor()
     min_frequency: float = psutil.cpu_freq().min
     max_frequency: float = psutil.cpu_freq().max
@@ -52,9 +50,8 @@ class CPUStatistics:
     physical_threads: int = psutil.cpu_count(logical=False)
 
 
-@dataclass_json
 @dataclass
-class HardwareStatistics:
+class HardwareStatistics(DataClassJsonMixin):
     system: str = platform.system()
     release: str = platform.release()
     version: str = platform.version()
@@ -62,9 +59,8 @@ class HardwareStatistics:
     total_memory: int = psutil.virtual_memory().total
 
 
-@dataclass_json
 @dataclass
-class MinimalSATStatistics:
+class MinimalSATStatistics(DataClassJsonMixin):
     name: str = None
     path: str = None
     format: str = None
@@ -72,9 +68,8 @@ class MinimalSATStatistics:
     translated_with: Optional[str] = None
 
 
-@dataclass_json
 @dataclass
-class ConjunctiveNormalFormFirstOrderLogicSATStatistics:
+class ConjunctiveNormalFormFirstOrderLogicSATStatistics(DataClassJsonMixin):
     SAT_type: SATType = None
     # number_of_clauses: int = None
     # number_of_unit_clauses: int = None
@@ -95,9 +90,8 @@ class ConjunctiveNormalFormFirstOrderLogicSATStatistics:
     # total_number_of_variables: int = None
 
 
-@dataclass_json
 @dataclass
-class ConjunctiveNormalFormPropositionalTemporalLogicFormulaInfo:
+class ConjunctiveNormalFormPropositionalTemporalLogicFormulaInfo(DataClassJsonMixin):
     number_of_variables: int = 0
     number_of_clauses: int = 0
     max_clause_size: int = 0
@@ -119,17 +113,15 @@ class SATStatus(Enum):
     OUT_OF_MEMORY = "out_of_memory"
 
 
-@dataclass_json
 @dataclass
-class OutputStatistics:
+class OutputStatistics(DataClassJsonMixin):
     status: SATStatus = SATStatus.UNKOWN
     stderr: str = ''
     stdout: str = ''
 
 
-@dataclass_json
 @dataclass
-class TestRunStatistics:
+class TestRunStatistics(DataClassJsonMixin):
     name: str
     command: List[str]
     execution_statistics: ExecutionStatistics = None
@@ -139,17 +131,15 @@ class TestRunStatistics:
     output: OutputStatistics = None
 
 
-@dataclass_json
 @dataclass
-class TestSuiteStatistics:
+class TestSuiteStatistics(DataClassJsonMixin):
     program_name: str
     program_version: str
     test_run: List[TestRunStatistics] = field(default_factory=list)
 
 
-@dataclass_json
 @dataclass
-class Statistics:
+class Statistics(DataClassJsonMixin):
     test_suites: List[TestSuiteStatistics] = field(default_factory=list)
     date: datetime.datetime = datetime.datetime.now()
     hardware: HardwareStatistics = HardwareStatistics()
