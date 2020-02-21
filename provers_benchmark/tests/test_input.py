@@ -7,7 +7,7 @@ from typing import List, ClassVar, Tuple, Optional
 
 from provers_benchmark.errors import BenchmarkException
 from provers_benchmark.log import get_logger
-from provers_benchmark.parsers.parsers import get_statistics_parser
+from provers_benchmark.parsers.parsers import get_input_parser
 from provers_benchmark.statistics.stats import MinimalSATStatistics
 from provers_benchmark.translators import Translator
 
@@ -39,7 +39,7 @@ class TestInput:
     # todo add caching, make it static
     def get_file_statistics(self, file_path: str):
         # [MinimalSATStatistics, ConjunctiveNormalFormFirstOrderLogicSATStatistics, ConjunctiveNormalFormPropositionalTemporalLogicFormulaInfo]:
-        parser = get_statistics_parser(format_name=self.format)
+        parser = get_input_parser(format_name=self.format)
         min_stats = MinimalSATStatistics(name=self.name, path=file_path, format=self.format)
         if not parser:
             logger.warning(f'no statistics available for format {self.format}. Only TPTP stats are supported')

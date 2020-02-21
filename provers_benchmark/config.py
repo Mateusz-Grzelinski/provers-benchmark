@@ -8,7 +8,7 @@ from typing import List, Dict, Type, NoReturn
 
 import toml
 
-from provers_benchmark.errors import ConfigException, BenchmarkException
+from provers_benchmark.errors import BenchmarkConfigException, BenchmarkException
 from provers_benchmark.tests import TestRun, TestSuite, TestInput
 from provers_benchmark.translators import Translator
 
@@ -123,7 +123,7 @@ class Config:
                 self.test_inputs.clear()
                 TestInput.translators.clear()
                 self.test_suites.clear()
-                raise ConfigException("Errors occured in config. See log warnings and errors")
+                raise BenchmarkConfigException("Errors occured in config. See log warnings and errors")
         self._logger.info("Config parsed successfully")
 
     def _load_general(self, general_config: Dict) -> NoReturn:
