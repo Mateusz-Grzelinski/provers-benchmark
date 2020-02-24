@@ -10,32 +10,27 @@ translators:
   - from_format: TPTP
     to_format: LADR
     command: ../provers/LADR-2009-11A/bin/tptp_to_ladr
-    input_as_stdin: True
-    output_as_stdout: True
+    input_mode: stdin
+    output_mode: stdout
 
 test_inputs:
   - name: example_input1
-    cwd: ../logit-formula-generator/test_data/data_set_1/
+    path: ../../data-sets/_generated/_fol-tptp-cnf-atom-clause-ratio/
     files:
-      - '*.p'
-    format: TPTP
-  - name: example_input2
-    cwd: ../logit-formula-generator/test_data/data_set_2/
-    files:
-      - '*.p'
-    format: TPTP
+      - '**/*.p'
+    format: TPT
 
 test_suites:
   - name: Prover9 test suite
     command: ../provers/LADR-2009-11A/bin/prover9
-    input_as_stdin: True
+    input_mode: stdin
     version: 2009-11A
     required_format: LADR
     save_stdout: False
     save_stderr: True
   - name: SPASS test suite
-    command: ../provers/spass39/SPASS -PStatistic=0 -PGiven=0 -DocProof=0 -PProblem=0 -TPTP
-    input_as_stdin: True
+    command: ../provers/spass39/SPASS -PStatistic=0 -PGiven=0 -DocProof=0 -PProblem=0 -TPTP $INPUT_PATH
+    input_mode: argument
     required_format: TPTP
     version: "3.9"
     save_stdout: True

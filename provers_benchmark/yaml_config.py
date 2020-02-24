@@ -3,8 +3,11 @@ from __future__ import annotations
 import datetime
 import glob
 import os
+import sys
+from enum import Enum, EnumMeta
+from functools import partial
 from pprint import pprint
-from typing import Set, Optional, Any, Dict, List
+from typing import Set, Optional, Any, Dict, List, Literal, Union, Type
 
 import yaml
 from dataclasses import dataclass, asdict, replace, field, Field
@@ -12,7 +15,7 @@ import subprocess
 import dacite
 import logging
 
-from provers_benchmark.errors import BenchmarkConfigException
+from provers_benchmark.errors import BenchmarkConfigException, DaciteArgumentValueError, UnsupportedSolver
 from provers_benchmark.parsers.parsers import Formats, get_all_supported_formats, get_all_supported_parsers
 
 logger: logging.Logger = logging.getLogger('BenchmarkConfig')
@@ -27,21 +30,77 @@ INPUT_PATH_TEMPLATE = '$INPUT_PATH'
 OUTPUT_PATH_TEMPLATE = '$OUTPUT_PATH'
 
 
+class __OutputEnumMeta(EnumMeta):
+    """Gives a unique type for OutputMode (required by dacite)"""
+    pass
+
+
+class __InputEnumMeta(EnumMeta):
+    """Gives a unique type for InputMode (required by dacite)"""
+    pass
+
+
+class OutputMode(Enum, metaclass=__OutputEnumMeta):
+    STDOUT = 'stdout'
+    ARGUMENT = 'argument'
+
+
+class InputMode(Enum, metaclass=__InputEnumMeta):
+    STDIN = 'stdin'
+    ARGUMENT = 'argument'
+
+
+def safe_enum_cast(enum: Type[Enum], argument: str, ):
+    try:
+        return enum(argument)
+    except ValueError:
+        raise DaciteArgumentValueError(available_values=[i.value for i in enum], current_value=argument)
+
+
+def _check_input_mode(input_mode: InputMode, command: str):
+    failing_keys = {'command': command, 'input_mode': input_mode}
+    if input_mode == InputMode.STDIN and INPUT_PATH_TEMPLATE in command:
+        return BenchmarkConfigException(
+            f'you can not use input_mode "stdin" with specified {INPUT_PATH_TEMPLATE} in command',
+            field_paths=failing_keys
+        )
+    if input_mode == InputMode.ARGUMENT and INPUT_PATH_TEMPLATE not in command:
+        return BenchmarkConfigException(
+            f'when using input_mode "argument", you must specify {INPUT_PATH_TEMPLATE} in command',
+            field_paths=failing_keys
+        )
+
+
+def _check_output_mode(output_mode: OutputMode, command: str):
+    failing_keys = {'command': command, 'output_mode': output_mode}
+    if output_mode == OutputMode.STDOUT and OUTPUT_PATH_TEMPLATE in command:
+        return BenchmarkConfigException(
+            f'you can not use output_mode "{OutputMode.STDOUT}" with specified {OUTPUT_PATH_TEMPLATE} in command',
+            field_paths=failing_keys
+        )
+    if output_mode == OutputMode.ARGUMENT and INPUT_PATH_TEMPLATE not in command:
+        return BenchmarkConfigException(
+            f'when using output_mode "{OutputMode.ARGUMENT}", you must specify {OUTPUT_PATH_TEMPLATE} in command',
+            field_paths=failing_keys
+        )
+
+
 def _is_executable(command: str):
     try:
-        subprocess.Popen([command], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=True).communicate()
+        subprocess.Popen([command], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, shell=True).communicate(
+            timeout=1)
     except OSError as e:
         if e.errno == os.errno.ENOENT:
             return False
+    except subprocess.TimeoutExpired:
+        return True
     return True
 
 
-def _log_child_key_error(parent_key: str, e: BenchmarkConfigException):
-    message = []
-    for key, value in e.failing_keys.items():
-        message.append(f'{parent_key}.{key}={value}')
-    message = ', '.join(message)
-    logger.error(f'{str(e)} ({message})')
+def find_translator(from_format: str, to_format: str, available_translators: List[Translator]):
+    for translator in available_translators:
+        if translator.from_format == from_format and translator.to_format == to_format:
+            return translator
 
 
 @dataclass
@@ -53,7 +112,7 @@ class TestSuite:
     Spaces in command path are not supported
     """
     required_format: str
-    input_as_stdin: bool = True
+    input_mode: InputMode
     """if True test file will be provided on stdin, 
     else string $INPUT_PATH in command will be replaces with real path 
     """
@@ -65,31 +124,21 @@ class TestSuite:
 
     def validate(self) -> List[BenchmarkConfigException]:
         errors = []
-
         if not _is_executable(self.command):
-            errors.append(
-                BenchmarkConfigException(f'command is not executable', failing_keys={'command': self.command}))
+            errors.append(BenchmarkConfigException(f'command is not executable', field_paths={'command': self.command}))
 
         probably_executable_name = os.path.basename(self.command.split()[0])
         if probably_executable_name.lower() not in get_all_supported_parsers():
-            errors.append(
-                BenchmarkConfigException(
-                    f'solver {probably_executable_name} is not supported. Use one of {get_all_supported_parsers()} or add '
-                    f'it in provers_benchmark/parsers/output_parsers',
-                    failing_keys={'command': self.command})
-            )
-        if self.input_as_stdin and INPUT_PATH_TEMPLATE in self.command:
-            errors.append(
-                BenchmarkConfigException(
-                    f'you probably don\'t want to use both {INPUT_PATH_TEMPLATE} and set input_as_stdin',
-                    failing_keys={'command': self.command, 'input_as_stdin': self.input_as_stdin})
-            )
+            errors.append(UnsupportedSolver(field_paths={'command': self.command}, solver=probably_executable_name))
+
+        if e := _check_input_mode(self.input_mode, self.command):
+            errors.append(e)
         return errors
 
 
 @dataclass
 class TestInput:
-    cwd: Optional[str]
+    path: Optional[str]
     """change working directory, defaults to current script path"""
     files: List[str]
     """list of paths, recursive wildcards supported"""
@@ -103,18 +152,14 @@ class TestInput:
 
     def validate(self) -> List[BenchmarkConfigException]:
         errors = []
-        if not os.path.exists(self.cwd):
-            errors.append(
-                BenchmarkConfigException(f'path {os.path.abspath(self.cwd)} does not exists',
-                                         failing_keys={'cwd': self.cwd})
-            )
+        if not os.path.exists(self.path):
+            errors.append(BenchmarkConfigException(f'path {os.path.abspath(self.path)} does not exists',
+                                                   field_paths={'path': self.path}))
         for file_pattern in self.files:
-            files = glob.glob(os.path.join(self.cwd, file_pattern))
+            files = glob.glob(os.path.join(self.path, file_pattern))
             if not files:
-                errors.append(
-                    BenchmarkConfigException(f'file pattern {file_pattern} did not match any files',
-                                             failing_keys={'files': self.files})
-                )
+                errors.append(BenchmarkConfigException(f'file pattern {file_pattern} did not match any files',
+                                                       field_paths={'files': self.files}))
         return errors
 
 
@@ -127,29 +172,15 @@ class Translator:
     String $INPUT_PATH will be replaced with real input path, string $OUPUT_PATH will be replaced with read_output_path
     spaces in command path are not supported
     """
-    input_as_stdin: bool
-    """Input file will be provided to standart input"""
-    output_as_stdout: bool
-    """Assumes translated formula is on standard output"""
+    input_mode: InputMode
+    output_mode: OutputMode
 
     def validate(self) -> List[BenchmarkConfigException]:
         errors = []
         if not _is_executable(self.command):
-            errors.append(
-                BenchmarkConfigException('command is not executable', failing_keys={'command': self.command})
-            )
-        if self.input_as_stdin and INPUT_PATH_TEMPLATE in self.command:
-            errors.append(
-                BenchmarkConfigException(
-                    f'you probably don\'t want to use both {INPUT_PATH_TEMPLATE} and set input_as_stdin',
-                    failing_keys={'command': self.command, 'input_as_stdin': self.input_as_stdin})
-            )
-        if self.output_as_stdout and OUTPUT_PATH_TEMPLATE in self.command:
-            errors.append(
-                BenchmarkConfigException(
-                    f'you probably don\'t want to use both {OUTPUT_PATH_TEMPLATE} and set outpu_as_stdout',
-                    failing_keys={'command': self.command, 'output_as_stdout': self.output_as_stdout})
-            )
+            errors.append(BenchmarkConfigException('command is not executable', field_paths={'command': self.command}))
+        _check_input_mode(input_mode=self.input_mode, command=self.command)
+        _check_output_mode(output_mode=self.output_mode, command=self.command)
         return errors
 
 
@@ -167,68 +198,81 @@ class GeneralConfig:
         if not os.path.exists(self.global_working_directory):
             errors.append(
                 BenchmarkConfigException(f'global_working_directory does not exist',
-                                         failing_keys={'global_working_directory': self.global_working_directory})
+                                         field_paths={'global_working_directory': self.global_working_directory})
             )
         return errors
 
 
-def find_translator(from_format: str, to_format: str, available_translators: List[Translator]):
-    # todo
-    pass
-
-
 @dataclass
-class Benchmark:
+class BenchmarkConfig:
     general: GeneralConfig
     translators: Optional[List[Translator]]
     test_inputs: List[TestInput]
     test_suites: List[TestSuite]
 
-    def validate(self):
+    def validate(self) -> List[BenchmarkConfigException]:
+        errors = []
         for t in self.translators:
             for e in t.validate():
-                _log_child_key_error(parent_key='translators', e=e)
+                e.update_field_path('translators')
+                errors.append(e)
 
         for t in self.test_inputs:
             for e in t.validate():
-                _log_child_key_error(parent_key='test_inputs', e=e)
+                e.update_field_path('test_inputs')
+                errors.append(e)
 
         test_input_names = [t.name for t in self.test_inputs]
         repeated_names = {'name': name for name in set(test_input_names) if test_input_names.count(name) > 1}
         if repeated_names:
-            _log_child_key_error(parent_key='test_input',
-                                 e=BenchmarkConfigException(f'value test_input.name must be unique',
-                                                            failing_keys=repeated_names)
-                                 )
+            e = BenchmarkConfigException(f'value test_input.name must be unique',
+                                         field_paths=repeated_names)
+            e.update_field_path('test_input')
+            errors.append(e)
 
         for t in self.test_suites:
             for e in t.validate():
-                _log_child_key_error(parent_key='test_suites', e=e)
+                e.update_field_path('test_inputs')
+                errors.append(e)
 
         for test_suite in self.test_suites:
             for test_input in self.test_inputs:
                 if test_suite.required_format != test_input.format and not find_translator(
                         from_format=test_input.format, to_format=test_suite.required_format,
                         available_translators=self.translators):
-                    logger.error(
-                        f'Translation of input "{test_input.name}" from {test_input.format} to {test_suite.required_format} is not possible')
+                    errors.append(BenchmarkConfigException(
+                        f'Translation of input "{test_input.name}" from {test_input.format} to {test_suite.required_format} in "{test_suite.name}" is not possible',
+                        field_paths={'test_suite': test_suite, 'test_input': test_input}
+                    ))
+        return errors
 
 
-def read_config(path='template/config.yaml') -> Benchmark:
+def read_config(path='../template/config.yaml') -> Optional[BenchmarkConfig]:
     logger.info(f'Reading config file: {os.path.abspath(path)}')
-    dacite_config = dacite.Config(check_types=True, strict=True)
+    dacite_config = dacite.Config(check_types=True, strict=True,
+                                  type_hooks={
+                                      InputMode: partial(safe_enum_cast, InputMode),
+                                      OutputMode: partial(safe_enum_cast, OutputMode)
+                                  })
     with open(path, 'r') as config_file:
         config = yaml.safe_load(config_file)
     try:
-        b_conf = dacite.from_dict(data_class=Benchmark, data=config, config=dacite_config)
-        return b_conf
+        config = dacite.from_dict(data_class=BenchmarkConfig, data=config, config=dacite_config)
     except dacite.UnexpectedDataError as e:
         logger.error(f'Unused keys: {e.keys}')
     except dacite.WrongTypeError as e:
         logger.error(f'{str(e)}, ({e.field_path}={e.value})')
+    except DaciteArgumentValueError as e:
+        logger.error(e)
+    else:
+        logger.info(f'Config syntax is correct')
+        return config
+    return None
 
 
 if __name__ == '__main__':
     b_conf = read_config()
-    if b_conf:
-        b_conf.validate()
+    if b_conf and (errors := b_conf.validate()):
+        for e in errors:
+            logger.error(e)
+        sys.exit(1)
