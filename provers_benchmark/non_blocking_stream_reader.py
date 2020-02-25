@@ -2,7 +2,6 @@
 from queue import Queue, Empty
 from threading import Thread
 
-# from Queue import Queue, Empty
 from typing import IO, NoReturn
 
 

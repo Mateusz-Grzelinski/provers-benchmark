@@ -1,6 +1,8 @@
 from typing import Any, List, Dict, Optional
-from provers_benchmark.parsers.parsers import Formats, get_all_supported_formats, get_all_supported_parsers
+
 import dacite
+
+from provers_benchmark.parsers.parsers import get_all_output_parsers
 
 
 class BenchmarkException(Exception):
@@ -44,5 +46,5 @@ class UnsupportedSolver(BenchmarkConfigException):
         self.solver = solver
 
     def __str__(self):
-        return f'solver {self.solver} is not supported in field {self.field_paths}. Use one of {get_all_supported_parsers()} or add ' \
+        return f'solver {self.solver} is not supported in field {self.field_paths}. Use one of {get_all_output_parsers()} or add ' \
                f'it in provers_benchmark/parsers/output_parsers.py '

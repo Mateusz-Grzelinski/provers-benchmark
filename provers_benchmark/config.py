@@ -1,397 +1,257 @@
-import copy
+from __future__ import annotations
+
 import glob
+import json
 import logging
 import os
-from dataclasses import dataclass, field
-from pprint import pprint
-from typing import List, Dict, Type, NoReturn
+from dataclasses import dataclass
+from enum import Enum, EnumMeta
+from functools import partial
+from typing import Optional, Dict, List, Type, Tuple
 
-import toml
+import dacite
+import yaml
 
-from provers_benchmark.errors import BenchmarkConfigException, BenchmarkException
-from provers_benchmark.tests import TestRun, TestSuite, TestInput
-from provers_benchmark.translators import Translator
+from provers_benchmark.errors import BenchmarkConfigException, DaciteArgumentValueError, UnsupportedSolver
+from provers_benchmark.parsers.parsers import get_all_output_parsers
+from provers_benchmark.statistics.stats import MinimalSATStatistics
+from provers_benchmark.utils import command_name, which, find_translator
+
+logger: logging.Logger = logging.getLogger('BenchmarkConfig')
+
+INPUT_PATH_TEMPLATE = '$INPUT_PATH'
+OUTPUT_PATH_TEMPLATE = '$OUTPUT_PATH'
+CACHE_LOCATION = '.cache'
+
+
+class __OutputEnumMeta(EnumMeta):
+    """Gives a unique type for OutputMode (required by dacite)"""
+    pass
+
+
+class __InputEnumMeta(EnumMeta):
+    """Gives a unique type for InputMode (required by dacite)"""
+    pass
+
+
+class OutputMode(Enum, metaclass=__OutputEnumMeta):
+    STDOUT = 'stdout'
+    ARGUMENT = 'argument'
+
+
+class InputMode(Enum, metaclass=__InputEnumMeta):
+    STDIN = 'stdin'
+    ARGUMENT = 'argument'
+
+
+def _safe_enum_cast(enum: Type[Enum], argument: str, ):
+    try:
+        return enum(argument)
+    except ValueError:
+        raise DaciteArgumentValueError(available_values=[i.value for i in enum], current_value=argument)
+
+
+def _check_input_mode(input_mode: InputMode, command: str):
+    failing_keys = {'command': command, 'input_mode': input_mode}
+    if input_mode == InputMode.STDIN and INPUT_PATH_TEMPLATE in command:
+        return BenchmarkConfigException(
+            f'you can not use input_mode "stdin" with specified {INPUT_PATH_TEMPLATE} in command',
+            field_paths=failing_keys
+        )
+    if input_mode == InputMode.ARGUMENT and INPUT_PATH_TEMPLATE not in command:
+        return BenchmarkConfigException(
+            f'when using input_mode "argument", you must specify {INPUT_PATH_TEMPLATE} in command',
+            field_paths=failing_keys
+        )
+
+
+def _check_output_mode(output_mode: OutputMode, command: str):
+    failing_keys = {'command': command, 'output_mode': output_mode}
+    if output_mode == OutputMode.STDOUT and OUTPUT_PATH_TEMPLATE in command:
+        return BenchmarkConfigException(
+            f'you can not use output_mode "{OutputMode.STDOUT}" with specified {OUTPUT_PATH_TEMPLATE} in command',
+            field_paths=failing_keys
+        )
+    if output_mode == OutputMode.ARGUMENT and INPUT_PATH_TEMPLATE not in command:
+        return BenchmarkConfigException(
+            f'when using output_mode "{OutputMode.ARGUMENT}", you must specify {OUTPUT_PATH_TEMPLATE} in command',
+            field_paths=failing_keys
+        )
 
 
 @dataclass
-class DictPoper:
-    """Convenience class for removing items from dictionary
-    use with context manager to print warning if dictionary was not emptied
+class Translator:
+    """Translate text to different syntax by calling executable
+    by default input file is piped to stdin, stdout is piped to output file
+    if input_as_last_argument is True, input_filename will be last arguments
+    input_as_last_argument and input_after_option are mutually exclusive
     """
+    from_format: str
+    to_format: str
+    command: str
+    """External command that will translate formats.
+    String $INPUT_PATH will be replaced with real input path, string $OUPUT_PATH will be replaced with read_output_path
+    spaces in command path are not supported
+    """
+    input_mode: InputMode
+    output_mode: OutputMode
 
-    def __init__(self, source: dict, logger: logging.Logger = logging, *args, **kwargs):
-        """source is dictionry that will be consumed
-        log any errors to logger
-        args and kwargs are used for logging as context to provide more info where the error occured
-         """
-        self.source = source
-        self._logger = logger
-        self._log_context = []
-        if args:
-            self._log_context.extend(args)
-        if kwargs:
-            self._log_context.append(kwargs)
-        self.errors_occured = False
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if self.source:
-            message = f"Unknown keys: '{self.source}'"
-            self._warning(message)
-
-    def pop_key(self, variable: str, default: any = None, required: bool = False,
-                type_check: Type = None):
-        """Remove and return variable from source and:
-        add default value if not in source
-        log error if required and not in source
-        set self.errors_occured if something went wrong
-        """
-        ok = True
-        value = self.source.pop(variable, default)
-        if required and value is None:
-            ok = False
-            message = f"Missing required key: '{variable}'"
-            self._error(message)
-
-        if value is not None and type_check is not None and type(value) != type_check:
-            ok = False
-            message = f"'{variable}'"
-            f" should be {type_check.__name__},"
-            f" but is {type(value).__name__}"
-            self._error(message)
-
-        if type_check == str and value is not None:
-            value = value.strip()
-
-        return value, ok
-
-    @property
-    def log_context(self) -> str:
-        """Return context passed to class in __init__ method"""
-        return ' '.join(map(str, self._log_context))
-
-    def _error(self, message):
-        self.errors_occured = True
-        if self.log_context:
-            message = f"{message}, in {self.log_context}"
-
-        self._logger.error(message)
-
-    def _warning(self, message):
-        if self.log_context:
-            message = f"{message}, in {self.log_context}"
-
-        self._logger.warning(message)
+    def validate(self) -> List[BenchmarkConfigException]:
+        errors = []
+        if not which(command_name(self.command)):
+            errors.append(BenchmarkConfigException(f'command is not found',
+                                                   field_paths={'command': self.command}))
+        _check_input_mode(input_mode=self.input_mode, command=self.command)
+        _check_output_mode(output_mode=self.output_mode, command=self.command)
+        return errors
 
 
 @dataclass
-class Config:
-    config_file: str = 'config.toml'
-    output_dir: str = 'benchmark-output'
-    log_file: str = 'benchmark.log'
-    test_suites: List[TestSuite] = field(default_factory=list)
-    test_inputs: List[TestInput] = field(default_factory=list)
-    test_case_timeout: int = None
+class TestSuite:
+    name: str
+    """Unique TestSuite name"""
+    command: str
+    """Command to benchmark. Evaluated by shell. String $INPUT_PATH will be switched with real input path.
+    Spaces in command path are not supported
+    """
+    required_format: str
+    input_mode: InputMode
+    """if True test file will be provided on stdin, 
+    else string $INPUT_PATH in command will be replaces with real path 
+    """
+    version: str = ''
+    save_stdout: bool = True
+    """Append standard output of command to statistics"""
+    save_stderr: bool = True
+    """Append standard error of command to statistics"""
 
-    _load_errors_occured: bool = False
-    _logger: logging.Logger = logging.getLogger('BenchmarkConfig')
+    def validate(self) -> List[BenchmarkConfigException]:
+        errors = []
+        if not which(command_name(self.command)):
+            errors.append(BenchmarkConfigException(f'command is not found',
+                                                   field_paths={'command': self.command}))
+
+        probably_executable_name = os.path.basename(self.command.split()[0])
+        if probably_executable_name.lower() not in get_all_output_parsers():
+            errors.append(UnsupportedSolver(field_paths={'command': self.command}, solver=probably_executable_name))
+
+        if e := _check_input_mode(self.input_mode, self.command):
+            errors.append(e)
+        return errors
+
+
+@dataclass
+class TestInput:
+    patterns: List[str]
+    """list of paths, recursive wildcards supported"""
+    format: str
+    name: Optional[str] = ''
+    """Unique TestInput name. Leave empty to generate automatically"""
 
     def __post_init__(self):
-        self._logger.setLevel(logging.DEBUG)
+        if not self.name:
+            self.name = f'{self.format}-{id(self)}'
 
-    def load_config(self) -> NoReturn:
-        """Load and config"""
-        self._load_errors_occured = False
-        if not os.path.isfile(self.config_file):
-            raise BenchmarkException(f"Config file '{self.config_file}'' is not found/not a file")
+    def validate(self) -> List[BenchmarkConfigException]:
+        errors = []
+        for pattern in self.patterns:
+            if not glob.glob(pattern, recursive=True):
+                errors.append(BenchmarkConfigException(f'file pattern {pattern} did not match any files',
+                                                       field_paths={'files': self.files}))
 
-        benchmark_config = toml.load(self.config_file)
+        return errors
 
-        with DictPoper(benchmark_config, self._logger, self.config_file) as poper:
-            general_config, _ = poper.pop_key('general', required=True, type_check=dict)
-            self._load_general(general_config)
-            translators_config, _ = poper.pop_key('translators', required=False, type_check=list)
-            self._load_translators(translators_config)
-            test_inputs_config, _ = poper.pop_key('testInputs', required=True, type_check=list)
-            self._load_test_inputs(test_inputs_config)
-            test_suites_config, _ = poper.pop_key('testSuites', required=True, type_check=list)
-            self._load_test_suites(test_suites_config)
+    @property
+    def files(self):
+        files = []
+        for pattern in self.patterns:
+            files.extend(glob.glob(pattern, recursive=True))
+        return files
 
-            if poper.errors_occured or self._load_errors_occured:
-                self.test_inputs.clear()
-                TestInput.translators.clear()
-                self.test_suites.clear()
-                raise BenchmarkConfigException("Errors occured in config. See log warnings and errors")
-        self._logger.info("Config parsed successfully")
+    def get_file_statistics(self, file_path: str) -> Tuple[MinimalSATStatistics, Dict]:
+        min_stats = MinimalSATStatistics(name=self.name, path=file_path, format=self.format)
 
-    def _load_general(self, general_config: Dict) -> NoReturn:
-        with DictPoper(general_config, self._logger, "[general]", copy.deepcopy(general_config)) as poper:
-            self.output_dir, _ = poper.pop_key(variable="output_dir",
-                                               default=self.output_dir,
-                                               required=False,
-                                               type_check=str)
+        try:
+            with open(file_path + '.json') as formula_info_file:
+                formula_info = json.load(formula_info_file)
+            return min_stats, formula_info
+        except FileNotFoundError:
+            logger.warning(
+                f'Statistics for {os.path.abspath(file_path)} not available (not found file {os.path.abspath(file_path)}.json)')
 
-            self.test_case_timeout, _ = poper.pop_key(variable="test_case_timeout",
-                                                      default=None,
-                                                      required=False,
-                                                      type_check=int)
-            # todo check is is writeable (should be dir or file?
-
-    def _load_translators(self, translators_config: List) -> NoReturn:
-        if not translators_config:
-            return
-        for translator_config in translators_config:
-            # for error reporting
-            with DictPoper(translator_config, self._logger, "[[translators]]",
-                           copy.deepcopy(translator_config)) as poper:
-                from_format, _ = poper.pop_key(variable="from_format",
-                                               required=True,
-                                               type_check=str)
-
-                to_format, _ = poper.pop_key(variable="to_format",
-                                             required=True,
-                                             type_check=str)
-
-                options, _ = poper.pop_key(variable="options",
-                                           default=[],
-                                           required=False,
-                                           type_check=list)
-
-                input_after_option, _ = poper.pop_key(variable="input_after_option",
-                                                      required=False,
-                                                      type_check=str)
-
-                input_as_last_argument, _ = poper.pop_key(variable="input_as_last_argument",
-                                                          required=False,
-                                                          type_check=bool)
-
-                output_after_option, _ = poper.pop_key(variable="output_after_option",
-                                                       required=False,
-                                                       type_check=str)
-
-                executable, _ = poper.pop_key(variable="executable",
-                                              required=True,
-                                              type_check=str)
-                extension, _ = poper.pop_key(variable="extension",
-                                             required=False)
-
-                PATH, _ = poper.pop_key(variable="PATH",
-                                        default=None,
-                                        type_check=str)
-
-                if poper.errors_occured:
-                    continue
-            try:
-                translator = Translator(from_format=from_format,
-                                        to_format=to_format,
-                                        executable=executable,
-                                        extension=extension,
-                                        options=[option.strip() for option in options],
-                                        input_as_last_argument=input_as_last_argument,
-                                        input_after_option=input_after_option,
-                                        output_after_option=output_after_option,
-                                        PATH=PATH)
-            except BenchmarkException as e:
-                self._error(e)
-            else:
-                if any(translator.to_format == i.to_format for i in TestInput.translators):
-                    self._logger.warning(
-                        f"Multiple translators with the same output format are not supported, "
-                        f"skipping {translator}")
-                else:
-                    TestInput.translators.append(translator)
-
-    def _load_test_inputs(self, test_inputs_config: Dict) -> NoReturn:
-        # test_inputs_config = config.pop("testInputs", None)
-        if not test_inputs_config:
-            self._error("You must define at least one testInput")
-            return
-
-        for test_input_config in test_inputs_config:
-            with DictPoper(test_input_config, self._logger, "[[testInputs]]",
-                           copy.deepcopy(test_input_config)) as poper:
-                name, _ = poper.pop_key(variable="name",
-                                        required=True,
-                                        type_check=str)
-
-                path, _ = poper.pop_key(variable="path",
-                                        required=True,
-                                        type_check=str)
-
-                format, _ = poper.pop_key(variable="format",
-                                          required=True,
-                                          type_check=str)
-
-                patterns, _ = poper.pop_key(variable="files",
-                                            required=True,
-                                            type_check=list)
-                gather_statistics_from_json_file, _ = poper.pop_key(
-                    variable="gather_statistics_from_json_file",
-                    required=False, type_check=bool)
-                gather_statistics_from_formula_file, _ = poper.pop_key(
-                    variable="gather_statistics_from_formula_file",
-                    required=False, type_check=bool)
-
-                files = []
-                prefix = path if os.path.isabs(path) else os.path.join(os.getcwd(), path)
-                for pattern in patterns:
-                    wildcard = os.path.join(prefix, pattern)
-                    resolved_paths = glob.glob(wildcard, recursive=True)
-
-                    if not resolved_paths:
-                        self._logger.warning(f"pattern '{wildcard}' did not match any file")
-                    else:
-                        files.extend(resolved_paths)
-
-                if not files:
-                    self._error(f"no file defined for testInput")
-                    continue
-
-                if poper.errors_occured:
-                    continue
-
-            try:
-                test_input = TestInput(
-                    name=name, path=prefix, format=format.lower(), files=files,
-                    gather_statistics_from_formula_file=gather_statistics_from_formula_file,
-                    gather_statistics_from_json_file=gather_statistics_from_json_file)
-            except BenchmarkException as e:
-                self._error(e)
-            else:
-                self.test_inputs.append(test_input)
-
-    def _load_test_suites(self, test_suites_config: Dict) -> NoReturn:
-        if test_suites_config is None:
-            self._error("You must define at least one testSuite")
-            return
-
-        for test_suite_config in test_suites_config:
-            # for error reporting
-            with DictPoper(test_suite_config, self._logger, "[[testSuites]]",
-                           copy.deepcopy(test_suite_config)) as poper:
-                name, _ = poper.pop_key(variable="name",
-                                        required=True,
-                                        type_check=str)
-
-                executable, _ = poper.pop_key(variable="executable",
-                                              required=True,
-                                              type_check=str)
-
-                PATH, _ = poper.pop_key(variable="PATH",
-                                        required=False,
-                                        type_check=str)
-
-                version, _ = poper.pop_key(variable="version",
-                                           required=False,
-                                           type_check=str)
-
-                static_options, _ = poper.pop_key(variable="options",
-                                                  default=[],
-                                                  type_check=list,
-                                                  required=False)
-
-                capture_stdout, _ = poper.pop_key(variable="capture_stdout",
-                                                  default=True,
-                                                  type_check=bool,
-                                                  required=False)
-
-                if poper.errors_occured:
-                    continue
-
-                try:
-                    test_suite = TestSuite(name=name, PATH=PATH, version=version, executable=executable,
-                                           options=[option.strip() for option in static_options],
-                                           test_inputs=self.test_inputs, capture_stdout=capture_stdout)
-                    self._load_test_runs(test_suite_config, test_suite)
-                except BenchmarkException as e:
-                    self._error(e)
-                else:
-                    self.test_suites.append(test_suite)
-
-    def _load_test_runs(self, config: Dict, test_suite: TestSuite) -> NoReturn:
-        test_runs_config = config.pop("testRuns", None)
-        if test_runs_config is None:
-            self._error("You must define at least one testCase")
-            return
-
-        for test_case_config in test_runs_config:
-            with DictPoper(test_case_config, self._logger, "[[testSuites.testRuns]]",
-                           copy.deepcopy(test_case_config)) as poper:
-                name, _ = poper.pop_key(variable="name",
-                                        required=True,
-                                        type_check=str)
-
-                input_as_last_arg, _ = poper.pop_key(variable="input_as_last_argument",
-                                                     required=False,
-                                                     type_check=bool)
-
-                input_after_option, _ = poper.pop_key(variable="input_after_option",
-                                                      required=False,
-                                                      type_check=str)
-
-                exclude, ok = poper.pop_key(variable="exclude",
-                                            default=[],
-                                            required=False,
-                                            type_check=list)
-
-                if ok:
-                    for test_input_name in exclude:
-                        if not any(test_input_name == test_input.name for test_input in test_suite.test_inputs):
-                            self._error(f"exclude: there is no [[testInput]] named {test_input_name}")
-                            poper.errors_occured = True
-
-                include_only, ok = poper.pop_key(variable="include_only",
-                                                 default=[],
-                                                 required=False,
-                                                 type_check=list)
-
-                if ok:
-                    for test_input_name in include_only:
-                        if not any(test_input_name == test_input.name for test_input in test_suite.test_inputs):
-                            self._error(
-                                f"include_only: there is no [[testInput]] named {test_input_name} in {poper.log_context}")
-                            poper.errors_occured = True
-
-                format, ok = poper.pop_key(variable="format",
-                                           required=True,
-                                           type_check=str)
-
-                # nested list
-                options, _ = poper.pop_key(variable="options",
-                                           required=True,
-                                           type_check=list)
-
-                if poper.errors_occured:
-                    continue
-
-            try:
-                test_run = TestRun(name=name,
-                                   format=format,
-                                   input_after_option=input_after_option,
-                                   input_as_last_argument=input_as_last_arg,
-                                   exclude=exclude,
-                                   include_only=include_only,
-                                   options=options)
-            except BenchmarkException as e:
-                self._error(e)
-                # self._logger.error(f"{e.args[0]} in {e.args[1:]}")
-            else:
-                test_suite.test_runs.append(test_run)
-
-    def _error(self, message):
-        self._load_errors_occured = True
-        if isinstance(message, Exception):
-            log = f"{message.args[0]}"
-            if message.args[1:]:
-                log = f"{log} in {' '.join(map(str, message.args[1:]))}"
-            self._logger.error(log)
-        else:
-            self._logger.error(message)
+        return min_stats, {}
 
 
-if __name__ == "__main__":
-    c = Config("../config.toml")
-    c.load_config()
-    pprint(c)
+@dataclass
+class GeneralConfig:
+    result_path: str
+    result_as_json: bool = True
+    result_as_csv: bool = True
+    test_timeout: int = 300
+
+
+@dataclass
+class BenchmarkConfig:
+    general: GeneralConfig
+    translators: Optional[List[Translator]]
+    test_inputs: List[TestInput]
+    test_suites: List[TestSuite]
+
+    def validate(self) -> List[BenchmarkConfigException]:
+        errors = []
+        for t in self.translators:
+            for e in t.validate():
+                e.update_field_path('translators')
+                errors.append(e)
+
+        for t in self.test_inputs:
+            for e in t.validate():
+                e.update_field_path('test_inputs')
+                errors.append(e)
+
+        test_input_names = [t.name for t in self.test_inputs]
+        repeated_names = {'name': name for name in set(test_input_names) if test_input_names.count(name) > 1}
+        if repeated_names:
+            e = BenchmarkConfigException(f'value test_input.name must be unique',
+                                         field_paths=repeated_names)
+            e.update_field_path('test_input')
+            errors.append(e)
+
+        for t in self.test_suites:
+            for e in t.validate():
+                e.update_field_path('test_inputs')
+                errors.append(e)
+
+        for test_suite in self.test_suites:
+            for test_input in self.test_inputs:
+                if test_suite.required_format != test_input.format and not find_translator(
+                        from_format=test_input.format, to_format=test_suite.required_format,
+                        available_translators=self.translators):
+                    errors.append(BenchmarkConfigException(
+                        f'Translation of input "{test_input.name}" from {test_input.format} to {test_suite.required_format} in "{test_suite.name}" is not possible',
+                        field_paths={'test_suite': test_suite, 'test_input': test_input}
+                    ))
+        return errors
+
+
+def read_config(path: str) -> Optional[BenchmarkConfig]:
+    logger.info(f'Reading config file: {os.path.abspath(path)}')
+    dacite_config = dacite.Config(check_types=True, strict=True,
+                                  type_hooks={
+                                      InputMode: partial(_safe_enum_cast, InputMode),
+                                      OutputMode: partial(_safe_enum_cast, OutputMode)
+                                  })
+    with open(path, 'r') as config_file:
+        config = yaml.safe_load(config_file)
+    try:
+        config = dacite.from_dict(data_class=BenchmarkConfig, data=config, config=dacite_config)
+    except dacite.UnexpectedDataError as e:
+        logger.error(f'Unused keys: {e.keys}')
+    except dacite.WrongTypeError as e:
+        logger.error(f'{str(e)}, ({e.field_path}={e.value})')
+    except DaciteArgumentValueError as e:
+        logger.error(e)
+    else:
+        logger.info(f'Config syntax is correct')
+        return config
+    return None

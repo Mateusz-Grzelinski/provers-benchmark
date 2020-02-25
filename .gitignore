@@ -8,4 +8,5 @@ venv
 benchmark.log
 config.*.toml
 *.json
+*.csv
 .cache

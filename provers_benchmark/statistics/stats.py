@@ -2,7 +2,7 @@ import datetime
 import platform
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Dict, Union, Optional
+from typing import List, Dict, Optional
 
 import psutil
 from dataclasses_json import DataClassJsonMixin, dataclass_json
@@ -64,43 +64,7 @@ class MinimalSATStatistics(DataClassJsonMixin):
     name: str = None
     path: str = None
     format: str = None
-    # list of commands used to translate
     translated_with: Optional[str] = None
-
-
-@dataclass
-class ConjunctiveNormalFormFirstOrderLogicSATStatistics(DataClassJsonMixin):
-    SAT_type: SATType = None
-    # number_of_clauses: int = None
-    # number_of_unit_clauses: int = None
-    # number_of_atoms: int = None
-    # maximal_clause_size: int = None
-    # average_clause_size: int = None
-    # number_of_predicates: int = None
-    # predicate_arities: str = None
-    # number_of_functors: int = None
-    # number_of_constant_functors: int = None
-    # functor_arities: str = None
-    # number_of_variables: int = None
-    # number_of_singleton_variables: int = None
-    # maximal_term_depth: int = None
-    # total_number_of_literals: int = None
-    # number_of_literals: int = None
-    # total_number_of_functors: int = None
-    # total_number_of_variables: int = None
-
-
-@dataclass
-class ConjunctiveNormalFormPropositionalTemporalLogicFormulaInfo(DataClassJsonMixin):
-    number_of_variables: int = 0
-    number_of_clauses: int = 0
-    max_clause_size: int = 0
-    clause_sizes: Dict[int, int] = field(default_factory=dict)
-    """Dict[clause_size, number_of_cluases]"""
-    number_of_variables_with_always_connectives: int = 0
-    number_of_variables_with_eventually_connectives: int = 0
-    number_of_variables_without_connective: int = 0
-    number_of_negated_variables: int = 0
 
 
 @dataclass_json
@@ -123,23 +87,17 @@ class OutputStatistics(DataClassJsonMixin):
 @dataclass
 class TestRunStatistics(DataClassJsonMixin):
     name: str
-    command: List[str]
+    program_name: str
+    program_version: str
+    command: str
     execution_statistics: ExecutionStatistics = None
     minimal_input_statistics: MinimalSATStatistics = None
-    input_statistics: Union[ConjunctiveNormalFormFirstOrderLogicSATStatistics,
-                            ConjunctiveNormalFormPropositionalTemporalLogicFormulaInfo] = None
+    input_formula_statistics: Dict = field(default_factory=dict)
     output: OutputStatistics = None
 
 
 @dataclass
-class TestSuiteStatistics(DataClassJsonMixin):
-    program_name: str
-    program_version: str
-    test_run: List[TestRunStatistics] = field(default_factory=list)
-
-
-@dataclass
 class Statistics(DataClassJsonMixin):
-    test_suites: List[TestSuiteStatistics] = field(default_factory=list)
+    test_runs: List[TestRunStatistics] = field(default_factory=list)
     date: datetime.datetime = datetime.datetime.now()
     hardware: HardwareStatistics = HardwareStatistics()

@@ -1,35 +1,33 @@
 general:
-  result_path: benchmark-output-data-set-1-06-08-2019
+  result_path: results
   result_as_json: True
   result_as_csv: True
   test_timeout: 300
-  global_working_directory: .
-  translator_cache_dir: /tmp
 
 translators:
   - from_format: TPTP
     to_format: LADR
-    command: ../provers/LADR-2009-11A/bin/tptp_to_ladr
+    command: ./provers/LADR-2009-11A/bin/tptp_to_ladr
     input_mode: stdin
     output_mode: stdout
 
 test_inputs:
   - name: example_input1
-    path: ../../data-sets/_generated/_fol-tptp-cnf-atom-clause-ratio/
-    files:
-      - '**/*.p'
-    format: TPT
+    patterns:
+    - ../data-sets/_generated/_fol-tptp-cnf-atom-clause-ratio/clauses100-literals1000/1.p
+    - ../data-sets/_generated/_fol-tptp-cnf-atom-clause-ratio/clauses100-literals1000/2.p
+    format: TPTP
 
 test_suites:
   - name: Prover9 test suite
-    command: ../provers/LADR-2009-11A/bin/prover9
+    command: ./provers/LADR-2009-11A/bin/prover9
     input_mode: stdin
     version: 2009-11A
     required_format: LADR
     save_stdout: False
     save_stderr: True
   - name: SPASS test suite
-    command: ../provers/spass39/SPASS -PStatistic=0 -PGiven=0 -DocProof=0 -PProblem=0 -TPTP $INPUT_PATH
+    command: ./provers/spass39/SPASS -PStatistic=0 -PGiven=0 -DocProof=0 -PProblem=0 -TPTP $INPUT_PATH
     input_mode: argument
     required_format: TPTP
     version: "3.9"
