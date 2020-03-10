@@ -4,7 +4,7 @@ import glob
 import json
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum, EnumMeta
 from functools import partial
 from typing import Optional, Dict, List, Type, Tuple
@@ -193,9 +193,9 @@ class GeneralConfig:
 @dataclass
 class BenchmarkConfig:
     general: GeneralConfig
-    translators: Optional[List[Translator]]
     test_inputs: List[TestInput]
     test_suites: List[TestSuite]
+    translators: Optional[List[Translator]] = field(default_factory=list)
 
     def validate(self) -> List[BenchmarkConfigException]:
         errors = []

@@ -67,8 +67,8 @@ def save_stats_to_csv(path):
                         del test_run_dict[key]
 
             rows.append(test_run_dict)
-        all_kes_in_csv = list(list(row.keys()) for row in rows)
-        csv_writer = csv.DictWriter(csv_file, fieldnames=set(chain(*all_kes_in_csv)))
+        all_keys_in_csv = set().union(*[list(row.keys()) for row in rows])
+        csv_writer = csv.DictWriter(csv_file, fieldnames=sorted(all_keys_in_csv))
         csv_writer.writeheader()
         for row in rows:
             csv_writer.writerow(row)

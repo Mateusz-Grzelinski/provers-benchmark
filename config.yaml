@@ -14,8 +14,7 @@ translators:
 test_inputs:
   - name: example_input1
     patterns:
-    - ../data-sets/_generated/_fol-tptp-cnf-atom-clause-ratio/clauses100-literals1000/1.p
-    - ../data-sets/_generated/_fol-tptp-cnf-atom-clause-ratio/clauses100-literals1000/2.p
+    - ../data-sets/_generated/_fol-tptp-cnf-atom-clause-ratio/clauses100-literals1000/0.p
     format: TPTP
 
 test_suites:
