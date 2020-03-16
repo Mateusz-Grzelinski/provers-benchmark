@@ -1,4 +1,5 @@
 import argparse
+import copy
 import csv
 import os
 import sys
@@ -12,7 +13,7 @@ from dataclasses import is_dataclass, asdict
 
 from provers_benchmark.config import read_config, TestInput, Translator
 from provers_benchmark.benchmark import run_benchmark, translate
-from provers_benchmark.utils import command_name, find_translator
+from provers_benchmark.utils import command_name, find_translator, executable_name
 from provers_benchmark.log import init_log, get_logger
 from provers_benchmark.statistics.stats import Statistics, SATStatus, TestRunStatistics
 
@@ -28,14 +29,15 @@ def parse_args():
     return parser.parse_args()
 
 
-def save_stats_to_json(path):
+def save_stats_to_json(stats: Statistics, path: str):
     out_file = path + '.json'
     logger.info(f'writing results to {out_file}')
     with open(out_file, 'w') as outfile:
         outfile.write(stats.to_json())
 
 
-def save_stats_to_csv(path):
+def save_stats_to_csv(stats: Statistics, path: str):
+    """Not all statistics are saved to csv"""
     out_file = path + '.csv'
     logger.info(f'writing results to {out_file}')
     with open(out_file, 'w') as csv_file:
@@ -101,8 +103,9 @@ if __name__ == '__main__':
 
     start = time.time()
     stats = Statistics()
-    for test_suite in config.test_suites:
-        for test_input in config.test_inputs:
+    for test_input in config.test_inputs:
+        test_runs_for_input = []
+        for test_suite in config.test_suites:
             for file in test_input.files:
                 minimal_statistics, formula_info = test_input.get_file_statistics(file)
                 if test_suite.required_format != test_input.format:
@@ -111,15 +114,22 @@ if __name__ == '__main__':
                     file = translate(translator=translator, input_file=file)
                     minimal_statistics.translated_with = translator
                 exec_stats, out_stats = run_benchmark(test_suite, input_path=file, timeout=config.general.test_timeout)
-                stats.test_runs.append(
+                test_runs_for_input.append(
                     TestRunStatistics(name=test_suite.name,
-                                      program_name=os.path.basename(command_name(test_suite.command)),
+                                      program_name=executable_name(test_suite.command),
                                       program_version=test_suite.version,
                                       command=test_suite.command, execution_statistics=exec_stats,
                                       minimal_input_statistics=minimal_statistics,
                                       input_formula_statistics=formula_info, output=out_stats
                                       )
                 )
+        stats_copy = copy.copy(stats)
+        stats_copy.test_runs = test_runs_for_input
+        if config.general.result_each_input_to_separate_file and config.general.result_as_json:
+            save_stats_to_json(stats_copy, f'{config.general.result_path}-{test_input.name}')
+        if config.general.result_each_input_to_separate_file and config.general.result_as_csv:
+            save_stats_to_csv(stats_copy, f'{config.general.result_path}-{test_input.name}')
+        stats.test_runs.extend(test_runs_for_input)
 
     statuses = [i.output.status for i in stats.test_runs]
     c = Counter(statuses)
@@ -134,7 +144,7 @@ if __name__ == '__main__':
     if dir := os.path.dirname(config.general.result_path):
         os.makedirs(dir, exist_ok=True)
 
-    if config.general.result_as_json:
-        save_stats_to_json(config.general.result_path)
-    if config.general.result_as_csv:
-        save_stats_to_csv(config.general.result_path)
+    if not config.general.result_each_input_to_separate_file and config.general.result_as_json:
+        save_stats_to_json(stats, config.general.result_path)
+    if not config.general.result_each_input_to_separate_file and config.general.result_as_csv:
+        save_stats_to_csv(stats, config.general.result_path)

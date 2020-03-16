@@ -1,5 +1,6 @@
 general:
   result_path: results
+  result_each_input_to_separate_file: True
   result_as_json: True
   result_as_csv: True
   test_timeout: 300

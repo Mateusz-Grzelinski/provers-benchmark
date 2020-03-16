@@ -185,6 +185,7 @@ class TestInput:
 @dataclass
 class GeneralConfig:
     result_path: str
+    result_each_input_to_separate_file: bool = False
     result_as_json: bool = True
     result_as_csv: bool = True
     test_timeout: int = 300
